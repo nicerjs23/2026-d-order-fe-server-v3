@@ -35,6 +35,21 @@ const getMenuFilterLabel = (selectedMenus: string[]): string | undefined => {
   return `${selectedMenus[0]} 외 ${selectedMenus.length - 1}건`;
 };
 
+const getRequestedAtTime = (requestedAt?: string) => {
+  if (!requestedAt) return Number.MAX_SAFE_INTEGER;
+
+  const time = new Date(requestedAt).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+};
+
+const sortStaffServeList = (list: StaffServeUIItem[]) => {
+  return [...list].sort((a, b) => {
+    const requestedAtDiff = getRequestedAtTime(a.requestedAt) - getRequestedAtTime(b.requestedAt);
+    if (requestedAtDiff !== 0) return requestedAtDiff;
+    return a.id - b.id;
+  });
+};
+
 const StaffServe = ({
   servingWsEnabled = true,
   onUpdateServeCount,
@@ -76,7 +91,7 @@ const StaffServe = ({
         setTableOptions(filterOptions.data.tables ?? []);
 
         if (Array.isArray(servingRes)) {
-          setStaffServeList(servingRes.map(mapToUIModel));
+          setStaffServeList(sortStaffServeList(servingRes.map(mapToUIModel)));
         }
       } catch (error) {
         console.error("데이터 초기화 실패:", error);
@@ -99,7 +114,7 @@ const StaffServe = ({
       try {
         const servingRes = await getServingCalls();
         if (cancelled || !Array.isArray(servingRes)) return;
-        setStaffServeList(servingRes.map(mapToUIModel));
+        setStaffServeList(sortStaffServeList(servingRes.map(mapToUIModel)));
       } catch (error) {
         console.error("서빙 목록 재동기화 실패:", error);
       }
@@ -121,7 +136,7 @@ const StaffServe = ({
               (item) => item.id === formattedData.id || item.orderItemId === formattedData.orderItemId
             );
             if (alreadyExists) return prevList;
-            return [formattedData, ...prevList];
+            return sortStaffServeList([...prevList, formattedData]);
           }
           case "REMOVE_CALL": {
             const { orderItemId, tableNumber } = payload.data;
@@ -133,15 +148,19 @@ const StaffServe = ({
           }
           case "CATCH_CALL": {
             const formattedData = mapToUIModel(payload.data);
-            return prevList.map((item) => (item.id === formattedData.id ? formattedData : item));
+            return sortStaffServeList(
+              prevList.map((item) => (item.id === formattedData.id ? formattedData : item))
+            );
           }
           case "COMPLETE_CALL":
             return prevList.filter((item) => item.id !== payload.data.taskId);
           case "CANCEL_CALL": {
             const formattedData = mapToUIModel(payload.data);
             const isExist = prevList.some((item) => item.id === formattedData.id);
-            if (!isExist) return [formattedData, ...prevList];
-            return prevList.map((item) => (item.id === formattedData.id ? formattedData : item));
+            if (!isExist) return sortStaffServeList([...prevList, formattedData]);
+            return sortStaffServeList(
+              prevList.map((item) => (item.id === formattedData.id ? formattedData : item))
+            );
           }
           default:
             return prevList;
