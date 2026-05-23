@@ -18,6 +18,9 @@ export const instance: AxiosInstance = axios.create({
 const isCsrfTokenEndpoint = (url?: string) =>
   url?.includes("/api/v3/django/auth/csrf-token/");
 
+const isDjangoEndpoint = (url?: string) =>
+  url?.includes("/api/v3/django/");
+
 const isUnsafeMethod = (method?: string) => {
   const m = (method || "GET").toUpperCase();
   return !["GET", "HEAD", "OPTIONS", "TRACE"].includes(m);
@@ -45,16 +48,22 @@ const stripStaleCsrfCookies = () => {
 };
 
 let cachedCsrfToken: string | null = null;
+let inflightCsrfFetch: Promise<string | null> | null = null;
 
-// instance를 그대로 사용해도 재귀 안 일어남:
-// - GET은 isUnsafeMethod=false라 request 인터셉터에서 CSRF 헤더 주입 안 함
-// - response 인터셉터의 403 retry는 isCsrfTokenEndpoint 체크로 csrf-token endpoint 제외
-const fetchCsrfToken = async (): Promise<string | null> => {
+const fetchCsrfToken = (): Promise<string | null> => {
+  if (inflightCsrfFetch) return inflightCsrfFetch;
   stripStaleCsrfCookies();
-  const res = await instance.get("/api/v3/django/auth/csrf-token/");
-  const token = res.data?.csrfToken;
-  cachedCsrfToken = typeof token === "string" ? token : null;
-  return cachedCsrfToken;
+  inflightCsrfFetch = instance
+    .get("/api/v3/django/auth/csrf-token/")
+    .then((res) => {
+      const token = res.data?.csrfToken;
+      cachedCsrfToken = typeof token === "string" ? token : null;
+      return cachedCsrfToken;
+    })
+    .finally(() => {
+      inflightCsrfFetch = null;
+    });
+  return inflightCsrfFetch;
 };
 
 // 401 refresh 동기화
@@ -72,7 +81,7 @@ const processQueue = (error: AxiosError | null) => {
 // Request: unsafe 메서드일 때 CSRF 토큰 자동 주입
 instance.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    if (isUnsafeMethod(config.method) && !isCsrfTokenEndpoint(config.url)) {
+    if (isUnsafeMethod(config.method) && !isCsrfTokenEndpoint(config.url) && isDjangoEndpoint(config.url)) {
       if (!cachedCsrfToken) {
         try {
           await fetchCsrfToken();
@@ -107,7 +116,8 @@ instance.interceptors.response.use(
     if (
       error.response?.status === 403 &&
       !originalRequest._csrfRetry &&
-      !isCsrfTokenEndpoint(originalRequest.url)
+      !isCsrfTokenEndpoint(originalRequest.url) &&
+      isDjangoEndpoint(originalRequest.url)
     ) {
       originalRequest._csrfRetry = true;
       try {
