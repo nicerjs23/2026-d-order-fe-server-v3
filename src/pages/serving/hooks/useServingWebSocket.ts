@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ServingTaskResponse } from "../apis/servingApi";
 
+const PONG_TIMEOUT_MS = 30_000;
+const PONG_CHECK_INTERVAL_MS = 5_000;
+const RECONNECT_DELAY_MS = 3_000;
+const MAX_RECONNECT_COUNT = 5;
+
 export function getServingWebSocketUrl(): string {
   const base = import.meta.env.VITE_BASE_URL || "";
   if (!base) {
@@ -42,6 +47,28 @@ interface UseServingWebSocketProps {
   onMessage: (payload: ServingWsPayload) => void;
 }
 
+const safeParseMessage = (data: unknown): unknown => {
+  if (typeof data !== "string") return data;
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    return data;
+  }
+};
+
+const isPongMessage = (message: unknown) => {
+  if (typeof message === "string") {
+    return message.toLowerCase() === "pong";
+  }
+
+  if (message && typeof message === "object" && "type" in message) {
+    return String((message as { type?: unknown }).type).toLowerCase() === "pong";
+  }
+
+  return false;
+};
+
 export const useServingWebSocket = ({
   enabled = true,
   onMessage,
@@ -50,10 +77,27 @@ export const useServingWebSocket = ({
   onMessageRef.current = onMessage;
 
   const wsRef = useRef<WebSocket | null>(null);
+  const lastPongAtRef = useRef(Date.now());
+  const pongWatchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    const clearPongWatchdog = () => {
+      if (!pongWatchdogRef.current) return;
+      clearInterval(pongWatchdogRef.current);
+      pongWatchdogRef.current = null;
+    };
+
+    const clearReconnectTimeout = () => {
+      if (!reconnectTimeoutRef.current) return;
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    };
+
     if (!enabled) {
+      clearPongWatchdog();
+      clearReconnectTimeout();
       wsRef.current?.close();
       wsRef.current = null;
       setIsConnected(false);
@@ -65,49 +109,102 @@ export const useServingWebSocket = ({
     try {
       url = getServingWebSocketUrl();
     } catch (e) {
-      console.error("❌ [ServingWS] URL 생성 에러:", e);
+      console.error("[ServingWS] URL creation error:", e);
       return;
     }
 
-    console.log(`🚀 [ServingWS] 연결 시도: ${url}`);
+    let disposed = false;
+    let reconnectCount = 0;
 
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+    const startPongWatchdog = (ws: WebSocket) => {
+      clearPongWatchdog();
+      pongWatchdogRef.current = setInterval(() => {
+        if (disposed || wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
 
-    ws.onopen = () => {
-      console.log("🟢 [ServingWS] 웹소켓 연결 성공!");
-      setIsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        console.log("📨 [ServingWS] raw message:", event.data);
-
-        const payload = JSON.parse(event.data) as ServingWsPayload;
-        console.log(`🔔 [ServingWS] parsed [${payload.type}]:`, payload.data);
-
-        if (payload.type && payload.data) {
-          onMessageRef.current(payload);
+        if (Date.now() - lastPongAtRef.current > PONG_TIMEOUT_MS) {
+          console.warn("[ServingWS] pong timeout. reconnecting...");
+          ws.close();
         }
-      } catch (error) {
-        console.error("❌ [ServingWS] 데이터 파싱 에러:", error);
-      }
+      }, PONG_CHECK_INTERVAL_MS);
     };
 
-    ws.onclose = (event) => {
-      console.log("🔴 [ServingWS] 웹소켓 연결 끊김", {
-        code: event.code,
-        reason: event.reason || "없음",
-        wasClean: event.wasClean,
-      });
+    const connect = () => {
+      if (disposed) return;
 
-      setIsConnected(false);
-      if (wsRef.current === ws) wsRef.current = null;
+      console.log(`[ServingWS] connecting: ${url}`);
+
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+      lastPongAtRef.current = Date.now();
+
+      ws.onopen = () => {
+        console.log("[ServingWS] connected");
+        reconnectCount = 0;
+        lastPongAtRef.current = Date.now();
+        setIsConnected(true);
+        startPongWatchdog(ws);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          console.log("[ServingWS] raw message:", event.data);
+
+          const message = safeParseMessage(event.data);
+          if (isPongMessage(message)) {
+            lastPongAtRef.current = Date.now();
+            return;
+          }
+
+          const payload = message as ServingWsPayload;
+          console.log(`[ServingWS] parsed [${payload.type}]:`, payload.data);
+
+          if (payload.type && payload.data) {
+            onMessageRef.current(payload);
+          }
+        } catch (error) {
+          console.error("[ServingWS] message parse error:", error);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log("[ServingWS] closed", {
+          code: event.code,
+          reason: event.reason || "none",
+          wasClean: event.wasClean,
+        });
+
+        clearPongWatchdog();
+        setIsConnected(false);
+        if (wsRef.current === ws) wsRef.current = null;
+
+        if (disposed) return;
+        if (reconnectCount >= MAX_RECONNECT_COUNT) {
+          console.warn("[ServingWS] reconnect stopped. max retry count reached.");
+          return;
+        }
+
+        reconnectCount += 1;
+        clearReconnectTimeout();
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          connect();
+        }, RECONNECT_DELAY_MS);
+      };
+
+      ws.onerror = (error) => {
+        console.error("[ServingWS] socket error:", error);
+      };
     };
+
+    connect();
 
     return () => {
-      ws.close();
-      if (wsRef.current === ws) wsRef.current = null;
+      disposed = true;
+      clearPongWatchdog();
+      clearReconnectTimeout();
+      wsRef.current?.close();
+      wsRef.current = null;
+      setIsConnected(false);
     };
   }, [enabled]);
 
