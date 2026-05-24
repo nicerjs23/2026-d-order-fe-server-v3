@@ -1,4 +1,5 @@
 import * as S from "./StaffServe.styled";
+import type { StaffServeUIItem } from "./StaffServe";
 
 const parseServerDate = (dateString?: string): Date | null => {
   if (!dateString) return null;
@@ -28,41 +29,30 @@ const getOrderElapsedText = (dateString?: string): string => {
 };
 
 interface StaffServeItemProps {
-  id: number;
-  orderItemId: number;
-  tableNumber: string;
-  menuName: string;
-  quantity: number;
-  requestedAt?: string;
-  active: boolean;
-  onAccept?: (taskId: number, tableNumber: string, orderItemId: number) => void;
+  item: StaffServeUIItem;
+  onAccept?: (item: StaffServeUIItem) => void;
 }
 
-const StaffServeItem = ({
-  id,
-  orderItemId,
-  tableNumber,
-  menuName,
-  quantity,
-  requestedAt,
-  active,
-  onAccept,
-}: StaffServeItemProps) => {
+const StaffServeItem = ({ item, onAccept }: StaffServeItemProps) => {
   return (
     <S.ItemWrapper>
       <S.LeftSection>
         <S.Table>
-          <S.TableNumber $active={active}>{tableNumber}</S.TableNumber>
-          <S.TableCall $active={active}>{menuName}</S.TableCall>
-          <S.TableMeta $active={active}>{quantity}개</S.TableMeta>
+          <S.TableNumber $active={item.active}>{item.tableNumber}</S.TableNumber>
+          <S.TableCall $active={item.active}>{item.menuName}</S.TableCall>
+          <S.TableMeta $active={item.active}>{item.quantity}개</S.TableMeta>
         </S.Table>
-        
-        <S.TableWaiting $active={active}>{getOrderElapsedText(requestedAt)}</S.TableWaiting>
+
+        <S.TableWaiting $active={item.active}>
+          {getOrderElapsedText(item.requestedAt)}
+        </S.TableWaiting>
       </S.LeftSection>
       <S.StaffCallButton
-        $active={active}
+        type="button"
+        $active={item.active}
+        disabled={!item.canCatch}
         onClick={() => {
-          if (active && onAccept) onAccept(id, tableNumber, orderItemId);
+          if (item.canCatch && onAccept) onAccept(item);
         }}
       >
         수락

@@ -16,7 +16,9 @@ import { useUser } from "@stores/UserContext";
 import ServingAcceptModal from "@components/servingacceptmoal/ServingAcceptModal";
 import { useStaffCallListSocket } from "@hooks/useStaffCallListSocket";
 
-import StaffServe from "./components/StaffServe/StaffServe";
+import StaffServe, {
+  type StaffServeUIItem,
+} from "./components/StaffServe/StaffServe";
 
 import {
   servingCatchApi,
@@ -212,11 +214,8 @@ const ServingPage = () => {
     };
   }, []);
 
-  const [serveModalItem, setServeModalItem] = useState<{
-    taskId: number;
-    orderItemId: number;
-    tableNumber: string;
-  } | null>(null);
+  const [serveModalItem, setServeModalItem] =
+    useState<StaffServeUIItem | null>(null);
 
   useEffect(() => {
     const isOverlayOpen =
@@ -415,17 +414,24 @@ const ServingPage = () => {
   };
 
   const handleServeCatch = useCallback(
-    async (
-      taskId: number,
-      tableNumber: string,
-      orderItemId: number
-    ) => {
+    async (item: StaffServeUIItem) => {
+      if (!item.canCatch) return;
       try {
-        const resMsg = await servingCatchApi(taskId);
+        const resMsg = await servingCatchApi(item.taskId);
         setToastMessage(resMsg || "서빙을 시작합니다.");
         setToastType("default");
 
-        setServeModalItem({ taskId, tableNumber, orderItemId });
+        setServeModalItem({
+          ...item,
+          status: "SERVING",
+          isMine: true,
+          canCatch: false,
+          canComplete: true,
+          canCancel: true,
+          disabled: false,
+          isProcessingByMe: true,
+          active: false,
+        });
       } catch (err: any) {
         setToastMessage(
           err?.response?.data?.message ||
@@ -438,8 +444,21 @@ const ServingPage = () => {
     []
   );
 
+  const handleRestoreActiveServe = useCallback(
+    (item: StaffServeUIItem | null) => {
+      setServeModalItem((prev) => {
+        if (!item) return null;
+        if (prev?.taskId === item.taskId) return prev;
+        return item;
+      });
+    },
+    []
+  );
+
   const handleServeComplete = async () => {
     if (!serveModalItem) return;
+    if (!serveModalItem.canComplete) return;
+
     try {
       const resMsg = await servingCompleteApi(serveModalItem.taskId);
       setToastMessage(resMsg || "서빙이 완료되었습니다.");
@@ -457,6 +476,8 @@ const ServingPage = () => {
 
   const handleServeCancel = async () => {
     if (!serveModalItem) return;
+    if (!serveModalItem.canCancel) return;
+
     try {
       const resMsg = await servingCancelApi(serveModalItem.taskId);
       setToastMessage(resMsg || "서빙을 취소했습니다.");
@@ -544,6 +565,7 @@ const ServingPage = () => {
           <StaffServe
             onUpdateServeCount={setServeCount}
             onAcceptServe={handleServeCatch}
+            onRestoreActiveServe={handleRestoreActiveServe}
           />
         </S.TabPanel>
 

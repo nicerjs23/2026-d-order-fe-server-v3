@@ -6,27 +6,40 @@ import {
   getServingCalls,
   getServingFilterOptions,
   isVisibleServingFilterMenu,
+} from "../../apis/servingApi";
+import type {
   ServingFilterMenuOption,
   ServingTaskResponse,
+  ServingTaskStatus,
 } from "../../apis/servingApi";
-import { useServingWebSocket, ServingWsPayload } from "../../hooks/useServingWebSocket";
+import { useServingWebSocket } from "../../hooks/useServingWebSocket";
 
 export interface StaffServeUIItem {
   id: number;
+  taskId: number;
   orderItemId: number;
   tableNumber: string;
   rawTableNumber: number | null;
+  menuId: number | null;
   menuName: string;
   quantity: number;
   requestedAt?: string;
+  status: ServingTaskStatus;
+  catchedBy: string | null;
+  isMine: boolean;
+  canCatch: boolean;
+  canComplete: boolean;
+  canCancel: boolean;
+  disabled: boolean;
+  isProcessingByMe: boolean;
   active: boolean;
 }
 
 interface StaffServeProps {
-  /** 비활성 탭에서는 WS 연결 종료만 하고 패널은 유지할 때 false */
   servingWsEnabled?: boolean;
   onUpdateServeCount?: (count: number) => void;
-  onAcceptServe?: (taskId: number, tableNumber: string, orderItemId: number) => void;
+  onAcceptServe?: (item: StaffServeUIItem) => void;
+  onRestoreActiveServe?: (item: StaffServeUIItem | null) => void;
 }
 
 const getMenuFilterLabel = (selectedMenus: string[]): string | undefined => {
@@ -44,64 +57,122 @@ const getRequestedAtTime = (requestedAt?: string) => {
 
 const sortStaffServeList = (list: StaffServeUIItem[]) => {
   return [...list].sort((a, b) => {
-    const requestedAtDiff = getRequestedAtTime(a.requestedAt) - getRequestedAtTime(b.requestedAt);
+    const requestedAtDiff =
+      getRequestedAtTime(a.requestedAt) - getRequestedAtTime(b.requestedAt);
     if (requestedAtDiff !== 0) return requestedAtDiff;
     return a.id - b.id;
   });
+};
+
+const isVisibleServingStatus = (status: ServingTaskStatus) => {
+  return status === "SERVE_REQUESTED" || status === "SERVING";
 };
 
 const StaffServe = ({
   servingWsEnabled = true,
   onUpdateServeCount,
   onAcceptServe,
+  onRestoreActiveServe,
 }: StaffServeProps) => {
   const [isMenuFilterOpen, setIsMenuFilterOpen] = useState(false);
   const [isTableFilterOpen, setIsTableFilterOpen] = useState(false);
 
   const [selectedMenuNames, setSelectedMenuNames] = useState<string[]>([]);
-  const [selectedTableRanges, setSelectedTableRanges] = useState<{ start: string; end: string }[]>([]);
+  const [selectedTableRanges, setSelectedTableRanges] = useState<
+    { start: string; end: string }[]
+  >([]);
 
   const [menuList, setMenuList] = useState<ServingFilterMenuOption[]>([]);
   const [tableOptions, setTableOptions] = useState<number[]>([]);
   const [staffServeList, setStaffServeList] = useState<StaffServeUIItem[]>([]);
 
   const formatTableNumber = (tableNumber: number | null | undefined) => {
-    if (typeof tableNumber === "number" && Number.isFinite(tableNumber)) return `T${tableNumber}`;
+    if (typeof tableNumber === "number" && Number.isFinite(tableNumber)) {
+      return `T${tableNumber}`;
+    }
     return "T-";
   };
 
-  const mapToUIModel = useCallback((task: ServingTaskResponse): StaffServeUIItem => {
-    return {
-      id: task.taskId,
-      orderItemId: task.orderItemId,
-      tableNumber: formatTableNumber(task.tableNumber),
-      rawTableNumber: task.tableNumber ?? null,
-      menuName: task.menuName ?? "메뉴 정보 없음",
-      quantity: typeof task.quantity === "number" && task.quantity > 0 ? task.quantity : 1,
-      requestedAt: task.requestedAt,
-      active: task.status === "SERVE_REQUESTED",
-    };
-  }, []);
+  const mapToUIModel = useCallback(
+    (task: ServingTaskResponse): StaffServeUIItem => {
+      const status = task.status;
+      const isMine = task.isMine ?? false;
+      const isServing = status === "SERVING";
+      const canCatch = task.canCatch ?? (status === "SERVE_REQUESTED");
+      const canComplete = task.canComplete ?? false;
+      const canCancel = task.canCancel ?? false;
+      const menuName = task.menuName ?? "메뉴 정보 없음";
+      const quantity =
+        typeof task.quantity === "number" && task.quantity > 0
+          ? task.quantity
+          : 1;
+
+      return {
+        id: task.taskId,
+        taskId: task.taskId,
+        orderItemId: task.orderItemId,
+        tableNumber: formatTableNumber(task.tableNumber),
+        rawTableNumber: task.tableNumber ?? null,
+        menuId: task.menuId ?? null,
+        menuName,
+        quantity,
+        requestedAt: task.requestedAt,
+        status,
+        catchedBy: task.catchedBy ?? null,
+        isMine,
+        canCatch,
+        canComplete,
+        canCancel,
+        disabled: isServing && !isMine,
+        isProcessingByMe: isServing && isMine,
+        active: canCatch,
+      };
+    },
+    []
+  );
+
+  const applyServingCalls = useCallback(
+    (servingRes: ServingTaskResponse[]) => {
+      const mapped = sortStaffServeList(
+        servingRes
+          .filter((task) => isVisibleServingStatus(task.status))
+          .map(mapToUIModel)
+      );
+      setStaffServeList(mapped);
+      onRestoreActiveServe?.(
+        mapped.find((item) => item.isProcessingByMe && item.canComplete) ?? null
+      );
+    },
+    [mapToUIModel, onRestoreActiveServe]
+  );
+
+  const refetchServingCalls = useCallback(async () => {
+    const servingRes = await getServingCalls();
+    if (!Array.isArray(servingRes)) return;
+    applyServingCalls(servingRes);
+  }, [applyServingCalls]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [servingRes, filterOptions] = await Promise.all([getServingCalls(), getServingFilterOptions()]);
-        setMenuList((filterOptions.data.menus ?? []).filter(isVisibleServingFilterMenu));
+        const [servingRes, filterOptions] = await Promise.all([
+          getServingCalls(),
+          getServingFilterOptions(),
+        ]);
+        setMenuList(
+          (filterOptions.data.menus ?? []).filter(isVisibleServingFilterMenu)
+        );
         setTableOptions(filterOptions.data.tables ?? []);
 
-        if (Array.isArray(servingRes)) {
-          setStaffServeList(sortStaffServeList(servingRes.map(mapToUIModel)));
-        }
+        if (Array.isArray(servingRes)) applyServingCalls(servingRes);
       } catch (error) {
-        console.error("데이터 초기화 실패:", error);
+        console.error("서빙 초기 데이터 조회 실패:", error);
       }
     };
 
     fetchInitialData();
-  }, [mapToUIModel]);
+  }, [applyServingCalls]);
 
-  /** 탭 이탈 시 WS만 끄고 패널을 유지하므로, 다시 활성화될 때 목록만 동기화 */
   const prevServingWsEnabledRef = useRef<boolean | null>(null);
   useEffect(() => {
     const prev = prevServingWsEnabledRef.current;
@@ -114,7 +185,7 @@ const StaffServe = ({
       try {
         const servingRes = await getServingCalls();
         if (cancelled || !Array.isArray(servingRes)) return;
-        setStaffServeList(sortStaffServeList(servingRes.map(mapToUIModel)));
+        applyServingCalls(servingRes);
       } catch (error) {
         console.error("서빙 목록 재동기화 실패:", error);
       }
@@ -123,56 +194,20 @@ const StaffServe = ({
     return () => {
       cancelled = true;
     };
-  }, [servingWsEnabled, mapToUIModel]);
+  }, [servingWsEnabled, applyServingCalls]);
 
   useServingWebSocket({
     enabled: servingWsEnabled,
-    onMessage: (payload: ServingWsPayload) => {
-      setStaffServeList((prevList) => {
-        switch (payload.type) {
-          case "NEW_CALL": {
-            const formattedData = mapToUIModel(payload.data);
-            const alreadyExists = prevList.some(
-              (item) => item.id === formattedData.id || item.orderItemId === formattedData.orderItemId
-            );
-            if (alreadyExists) return prevList;
-            return sortStaffServeList([...prevList, formattedData]);
-          }
-          case "REMOVE_CALL": {
-            const { orderItemId, tableNumber } = payload.data;
-            return prevList.filter((item) => {
-              if (typeof orderItemId === "number") return item.orderItemId !== orderItemId;
-              if (typeof tableNumber === "number") return item.rawTableNumber !== tableNumber;
-              return true;
-            });
-          }
-          case "CATCH_CALL": {
-            const formattedData = mapToUIModel(payload.data);
-            return sortStaffServeList(
-              prevList.map((item) => (item.id === formattedData.id ? formattedData : item))
-            );
-          }
-          case "COMPLETE_CALL":
-            return prevList.filter((item) => item.id !== payload.data.taskId);
-          case "CANCEL_CALL": {
-            const formattedData = mapToUIModel(payload.data);
-            const isExist = prevList.some((item) => item.id === formattedData.id);
-            if (!isExist) return sortStaffServeList([...prevList, formattedData]);
-            return sortStaffServeList(
-              prevList.map((item) => (item.id === formattedData.id ? formattedData : item))
-            );
-          }
-          default:
-            return prevList;
-        }
-      });
+    onMessage: () => {
+      void refetchServingCalls();
     },
   });
 
   const filteredStaffServeList = useMemo(() => {
     return staffServeList.filter((item) => {
       const matchesMenu =
-        selectedMenuNames.length === 0 || selectedMenuNames.includes(item.menuName);
+        selectedMenuNames.length === 0 ||
+        selectedMenuNames.includes(item.menuName);
 
       const matchesTable =
         selectedTableRanges.length === 0 ||
@@ -191,7 +226,7 @@ const StaffServe = ({
   }, [staffServeList, selectedMenuNames, selectedTableRanges]);
 
   const activeStaffServeCount = useMemo(() => {
-    return staffServeList.filter((item) => item.active).length;
+    return staffServeList.filter((item) => item.canCatch).length;
   }, [staffServeList]);
 
   useEffect(() => {
@@ -217,7 +252,10 @@ const StaffServe = ({
         }}
       />
 
-      <StaffServeList list={filteredStaffServeList} onAcceptServe={onAcceptServe} />
+      <StaffServeList
+        list={filteredStaffServeList}
+        onAcceptServe={onAcceptServe}
+      />
 
       {isMenuFilterOpen && (
         <components.MenuFilterSheet
