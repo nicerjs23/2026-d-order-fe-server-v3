@@ -40,3 +40,9 @@ export const BtnMargin = styled.div`
   display: flex;
   margin-top: 16px;
 `;
+
+export const ErrorMessage = styled.p`
+  ${({ theme }) => theme.fonts.Medium14};
+  color: ${({ theme }) => theme.colors.Error};
+  margin-top: -12px;
+`;
