@@ -29,6 +29,7 @@ export interface RefreshResponse {
   data?: {
     username: string;
     booth_id: number;
+    booth_name?: string;
   };
 }
 

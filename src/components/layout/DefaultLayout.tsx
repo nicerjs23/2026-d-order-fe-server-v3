@@ -17,7 +17,7 @@ const DefaultLayout = () => {
         if (!res.data) {
           navigate(ROUTE_CONSTANTS.LOGIN, { replace: true });
         } else {
-          setUser({ username: res.data.username, booth_id: res.data.booth_id });
+          setUser({ username: res.data.username, booth_id: res.data.booth_id, booth_name: res.data.booth_name });
         }
       } catch {
         navigate(ROUTE_CONSTANTS.LOGIN, { replace: true });
