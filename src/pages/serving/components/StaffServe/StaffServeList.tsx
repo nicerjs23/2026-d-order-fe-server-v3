@@ -1,21 +1,11 @@
-// components/StaffServe/StaffServeList.tsx
 import * as S from "./StaffServe.styled";
 import { IMAGE_CONSTANTS } from "@constants/ImageConstants";
 import StaffServeItem from "./StaffServeItem";
-
-interface StaffServeUIItem {
-  id: number;
-  orderItemId: number;
-  tableNumber: string;
-  menuName: string;
-  quantity: number;
-  requestedAt?: string;
-  active: boolean;
-}
+import type { StaffServeUIItem } from "./StaffServe";
 
 interface StaffServeListProps {
   list: StaffServeUIItem[];
-  onAcceptServe?: (taskId: number, tableNumber: string, orderItemId: number) => void;
+  onAcceptServe?: (item: StaffServeUIItem) => void;
 }
 
 const StaffServeList = ({ list, onAcceptServe }: StaffServeListProps) => {
@@ -25,13 +15,7 @@ const StaffServeList = ({ list, onAcceptServe }: StaffServeListProps) => {
       {list.map((item) => (
         <StaffServeItem
           key={item.id}
-          id={item.id}
-          orderItemId={item.orderItemId}
-          tableNumber={item.tableNumber}
-          menuName={item.menuName}
-          quantity={item.quantity}
-          requestedAt={item.requestedAt}
-          active={item.active}
+          item={item}
           onAccept={onAcceptServe}
         />
       ))}

@@ -1,16 +1,30 @@
 import { instance } from "@services/instance";
+import { getServerClientId } from "../../../utils/getServerClientId";
 
-// 🌟 백엔드 명세 변경: catchedBy 필드 완전 삭제됨
+// Backend returns requested and in-progress serving tasks.
+export type ServingTaskStatus = "SERVE_REQUESTED" | "SERVING" | "SERVED";
+
 export interface ServingTaskResponse {
   taskId: number;
   orderItemId: number;
   /** 일부 WS/조회 응답에 테이블 번호가 포함될 수 있음 */
-  tableNumber?: number;
-  menuName?: string;
-  quantity?: number;
-  status: string;
+  tableNumber: number | null;
+  menuId: number | null;
+  menuName: string | null;
+  quantity: number | null;
+  status: ServingTaskStatus;
+  /** UUID from X-Server-Client-Id, not a username. */
+  catchedBy: string | null;
+  isMine: boolean | null;
+  canCatch: boolean | null;
+  canComplete: boolean | null;
+  canCancel: boolean | null;
   requestedAt: string;
 }
+
+const serverClientHeaders = () => ({
+  "X-Server-Client-Id": getServerClientId(),
+});
 
 export interface ServingFilterMenuOption {
   id: number;
@@ -55,7 +69,16 @@ export interface ServingFilterOptionsResponse {
 // 1. 운영자 서빙 대기 목록 조회 API
 export const getServingCalls = async () => {
   const response = await instance.get<ServingTaskResponse[]>(
-    `/api/v3/spring/serving/servingcall`
+    `/api/v3/spring/serving/servingcall`,
+    { headers: serverClientHeaders() }
+  );
+  return response.data;
+};
+
+export const getServingCallsByBoothId = async (boothId: number) => {
+  const response = await instance.get<ServingTaskResponse[]>(
+    `/api/v3/spring/serving/servingcall/${boothId}`,
+    { headers: serverClientHeaders() }
   );
   return response.data;
 };
@@ -72,7 +95,7 @@ export const servingCatchApi = async (taskId: number) => {
   const response = await instance.post<string>(
     "/api/v3/spring/serving/catchcall",
     null,
-    { params: { taskId } }
+    { params: { taskId }, headers: serverClientHeaders() }
   );
   return response.data;
 };
@@ -82,7 +105,7 @@ export const servingCompleteApi = async (taskId: number) => {
   const response = await instance.post<string>(
     "/api/v3/spring/serving/complete",
     null,
-    { params: { taskId } }
+    { params: { taskId }, headers: serverClientHeaders() }
   );
   return response.data;
 };
@@ -92,7 +115,7 @@ export const servingCancelApi = async (taskId: number) => {
   const response = await instance.post<string>(
     "/api/v3/spring/serving/cancel",
     null,
-    { params: { taskId } }
+    { params: { taskId }, headers: serverClientHeaders() }
   );
   return response.data;
 };
