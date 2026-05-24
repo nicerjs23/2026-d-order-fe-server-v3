@@ -10,6 +10,7 @@ export interface LoginResponse {
   data: {
     username: string;
     booth_id: number;
+    booth_name?: string;
   };
 }
 

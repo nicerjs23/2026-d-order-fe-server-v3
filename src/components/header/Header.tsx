@@ -7,7 +7,7 @@ import { useUser } from "@stores/UserContext";
 
 const Header = () => {
   const { user } = useUser();
-  const boothName = user?.username || "부스이름";
+  const boothName = user?.booth_name || user?.username || "부스이름";
   const navigate = useNavigate();
 
   const handleLogout = async () => {

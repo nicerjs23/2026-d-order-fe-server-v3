@@ -4,6 +4,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 export interface User {
   username: string;
   booth_id: number;
+  booth_name?: string;
 }
 
 interface UserContextProps {
