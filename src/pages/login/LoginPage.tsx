@@ -11,7 +11,7 @@ const LoginPage = () => {
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState(false);
   const navigate = useNavigate();
-  const { login, loading, error, errorStatus, data } = useLogin();
+  const { login, loading, errorStatus, data } = useLogin();
 
   // 로그인 버튼 클릭 시 API 호출
   const handleLogin = async () => {
