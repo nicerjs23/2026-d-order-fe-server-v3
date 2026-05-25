@@ -447,7 +447,9 @@ const ServingPage = () => {
   const handleRestoreActiveServe = useCallback(
     (item: StaffServeUIItem | null) => {
       setServeModalItem((prev) => {
-        if (!item) return null;
+        // item이 null이면 현재 상태 유지: 방금 catch한 모달이 즉시 닫히는 race condition 방지.
+        // 모달 닫기는 handleServeComplete / handleServeCancel에서 명시적으로만 처리.
+        if (!item) return prev;
         if (prev?.taskId === item.taskId) return prev;
         return item;
       });
