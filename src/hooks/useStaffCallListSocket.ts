@@ -8,6 +8,7 @@ const PING_INTERVAL_MS = 30_000;
 /** 권장: 3~5초 — 중간값 */
 const PONG_DEADLINE_MS = 3_000;
 const RECONNECT_DELAY_MS = 1_500;
+const MAX_RECONNECT_COUNT = 5;
 
 /** `VITE_BASE_URL`(https://host) → `wss://host/ws/server/staffcall` */
 export function getStaffCallServerWebSocketUrl(): string {
@@ -35,6 +36,7 @@ interface UseStaffCallListSocketOptions {
  * 직원 호출 목록: wss://…/ws/server/staffcall
  * - 연결 후 LIST 전송, LIST_RESULT / STAFF_CALL_SNAPSHOT 으로 목록 갱신
  * - 주기적 PING / PONG 하트비트, PONG 지연 시 재연결 후 LIST로 동기화
+ * - 연결 실패 시 최대 MAX_RECONNECT_COUNT회 재시도
  */
 export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
   const onListUpdateRef = useRef(options.onListUpdate);
@@ -88,6 +90,7 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
     }
 
     let cancelled = false;
+    let reconnectCount = 0;
     let pingIntervalId: ReturnType<typeof setInterval> | null = null;
     let pongDeadlineId: ReturnType<typeof setTimeout> | null = null;
     let reconnectId: ReturnType<typeof setTimeout> | null = null;
@@ -115,6 +118,14 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
 
     const scheduleReconnect = () => {
       if (cancelled) return;
+      if (reconnectCount >= MAX_RECONNECT_COUNT) {
+        onErrorRef.current?.(
+          "직원 호출 연결을 복구하지 못했습니다. 잠시 후 다시 시도해 주세요."
+        );
+        setIsRefreshing(false);
+        return;
+      }
+      reconnectCount += 1;
       clearReconnect();
       reconnectId = setTimeout(() => {
         reconnectId = null;
@@ -133,7 +144,6 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
         } catch {
           /* ignore */
         }
-        scheduleReconnect();
         return;
       }
       pongDeadlineId = setTimeout(() => {
@@ -146,8 +156,6 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
         } catch {
           /* ignore */
         }
-        // onclose에서도 재연결되지만, 이벤트 순서에 의존하지 않고 명시적으로 시도
-        scheduleReconnect();
       }, PONG_DEADLINE_MS);
     };
 
@@ -162,6 +170,7 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        reconnectCount = 0;
         setIsConnected(true);
         setIsRefreshing(true);
         ws.send(JSON.stringify(LIST_PAYLOAD));
