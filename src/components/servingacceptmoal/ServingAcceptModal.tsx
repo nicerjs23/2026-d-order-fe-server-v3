@@ -61,11 +61,15 @@ const ModalInfo = memo(
           src={IMAGE_CONSTANTS.ServingAcceptModal.RejectBtn}
         />
         <S.InformationSectionContent>
-          {tableNumberText}
+          <S.InformationSectionPrimary>
+            {tableNumberText}
+          </S.InformationSectionPrimary>
           {extraContentText && (
             <>
               <S.InformationSectionDiveider />
-              {extraContentText}
+              <S.InformationSectionSecondary>
+                {extraContentText}
+              </S.InformationSectionSecondary>
             </>
           )}
         </S.InformationSectionContent>
