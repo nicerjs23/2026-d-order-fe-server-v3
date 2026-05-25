@@ -238,7 +238,8 @@ const ServingPage = () => {
     };
   }, [isTableResetOpen, acceptModalItem, serveModalItem]);
 
-  const staffCallWsEnabled = Boolean(user?.booth_id);
+  const staffCallWsEnabled =
+    Boolean(user?.booth_id) && staffCallPanelMounted;
 
   const {
     isRefreshing: isStaffCallRefreshing,

@@ -3,12 +3,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const LIST_PAYLOAD = { type: "LIST" as const, limit: 20, offset: 0 };
 const PING_PAYLOAD = { type: "PING" as const };
 
-/** 권장: 30~60초 */
-const PING_INTERVAL_MS = 30_000;
-/** 권장: 3~5초 — 중간값 */
-const PONG_DEADLINE_MS = 3_000;
-const RECONNECT_DELAY_MS = 1_500;
+/** 권장 30~60초 */
+const PING_INTERVAL_MS = 60_000;
+/** 기존 3초는 서버 지연 시 불필요한 재연결 유발 → 15초 */
+const PONG_DEADLINE_MS = 15_000;
+
+/** PING/PONG 외에도 완전 무응답일 때만 끊기 (PING 주기 + PONG 대기보다 길게) */
+const IDLE_TIMEOUT_MS = 120_000;
+const IDLE_CHECK_INTERVAL_MS = 30_000;
+
+const RECONNECT_BASE_DELAY_MS = 2_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 const MAX_RECONNECT_COUNT = 5;
+
+const LIST_DEBOUNCE_MS = 500;
 
 /** `VITE_BASE_URL`(https://host) → `wss://host/ws/server/staffcall` */
 export function getStaffCallServerWebSocketUrl(): string {
@@ -32,11 +40,18 @@ interface UseStaffCallListSocketOptions {
   onError?: (message: string) => void;
 }
 
+const getReconnectDelayMs = (attempt: number) =>
+  Math.min(
+    RECONNECT_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+    RECONNECT_MAX_DELAY_MS
+  );
+
 /**
  * 직원 호출 목록: wss://…/ws/server/staffcall
- * - 연결 후 LIST 전송, LIST_RESULT / STAFF_CALL_SNAPSHOT 으로 목록 갱신
- * - 주기적 PING / PONG 하트비트, PONG 지연 시 재연결 후 LIST로 동기화
- * - 연결 실패 시 최대 MAX_RECONNECT_COUNT회 재시도
+ * - 연결 후 LIST 1회, LIST_RESULT / STAFF_CALL_SNAPSHOT 으로 목록 갱신
+ * - 60초마다 PING, PONG은 PONG_DEADLINE_MS(15초) 내 미수신 시에만 재연결
+ * - 그 외 완전 무응답(IDLE_TIMEOUT_MS) 시 재연결
+ * - 연결 실패 시 지수 백오프로 최대 MAX_RECONNECT_COUNT회 재시도
  */
 export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
   const onListUpdateRef = useRef(options.onListUpdate);
@@ -48,11 +63,15 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const sendListRef = useRef<() => void>(() => {});
+
   const sendList = useCallback(() => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(LIST_PAYLOAD));
   }, []);
+
+  sendListRef.current = sendList;
 
   const requestList = useCallback(
     (opts?: { silent?: boolean }) => {
@@ -91,9 +110,20 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
 
     let cancelled = false;
     let reconnectCount = 0;
+    let intentionalClose = false;
+    let idleCheckId: ReturnType<typeof setInterval> | null = null;
     let pingIntervalId: ReturnType<typeof setInterval> | null = null;
     let pongDeadlineId: ReturnType<typeof setTimeout> | null = null;
     let reconnectId: ReturnType<typeof setTimeout> | null = null;
+    let listDebounceId: ReturnType<typeof setTimeout> | null = null;
+    let lastMessageAt = Date.now();
+
+    const clearIdleCheck = () => {
+      if (idleCheckId != null) {
+        clearInterval(idleCheckId);
+        idleCheckId = null;
+      }
+    };
 
     const clearPingInterval = () => {
       if (pingIntervalId != null) {
@@ -116,8 +146,56 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
       }
     };
 
+    const clearListDebounce = () => {
+      if (listDebounceId != null) {
+        clearTimeout(listDebounceId);
+        listDebounceId = null;
+      }
+    };
+
+    const touchActivity = () => {
+      lastMessageAt = Date.now();
+    };
+
+    const sendListNow = () => {
+      sendListRef.current();
+    };
+
+    const scheduleListRefresh = () => {
+      clearListDebounce();
+      listDebounceId = setTimeout(() => {
+        listDebounceId = null;
+        if (cancelled) return;
+        setIsRefreshing(true);
+        sendListNow();
+      }, LIST_DEBOUNCE_MS);
+    };
+
+    const detachSocketHandlers = (ws: WebSocket) => {
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+    };
+
+    const closeSocket = (ws: WebSocket | null) => {
+      if (!ws) return;
+      detachSocketHandlers(ws);
+      try {
+        if (
+          ws.readyState === WebSocket.OPEN ||
+          ws.readyState === WebSocket.CONNECTING
+        ) {
+          ws.close();
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
     const scheduleReconnect = () => {
-      if (cancelled) return;
+      if (cancelled || reconnectId != null) return;
+
       if (reconnectCount >= MAX_RECONNECT_COUNT) {
         onErrorRef.current?.(
           "직원 호출 연결을 복구하지 못했습니다. 잠시 후 다시 시도해 주세요."
@@ -125,12 +203,13 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
         setIsRefreshing(false);
         return;
       }
+
       reconnectCount += 1;
-      clearReconnect();
+      const delay = getReconnectDelayMs(reconnectCount);
       reconnectId = setTimeout(() => {
         reconnectId = null;
         if (!cancelled) connect();
-      }, RECONNECT_DELAY_MS);
+      }, delay);
     };
 
     const sendPingStartWatchdog = (ws: WebSocket) => {
@@ -139,52 +218,81 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
       try {
         ws.send(JSON.stringify(PING_PAYLOAD));
       } catch {
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
+        ws.close();
         return;
       }
       pongDeadlineId = setTimeout(() => {
         pongDeadlineId = null;
-        if (cancelled) return;
-        if (wsRef.current !== ws) return;
-
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
+        if (cancelled || wsRef.current !== ws) return;
+        ws.close();
       }, PONG_DEADLINE_MS);
+    };
+
+    const startPingInterval = (ws: WebSocket) => {
+      clearPingInterval();
+      pingIntervalId = setInterval(() => {
+        if (
+          cancelled ||
+          wsRef.current !== ws ||
+          ws.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
+        sendPingStartWatchdog(ws);
+      }, PING_INTERVAL_MS);
+    };
+
+    const startIdleWatchdog = (ws: WebSocket) => {
+      clearIdleCheck();
+      idleCheckId = setInterval(() => {
+        if (
+          cancelled ||
+          wsRef.current !== ws ||
+          ws.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
+        if (Date.now() - lastMessageAt > IDLE_TIMEOUT_MS) {
+          intentionalClose = false;
+          ws.close();
+        }
+      }, IDLE_CHECK_INTERVAL_MS);
     };
 
     const connect = () => {
       if (cancelled) return;
 
+      clearIdleCheck();
       clearPingInterval();
       clearPongDeadline();
       clearReconnect();
+      clearListDebounce();
+
+      const previous = wsRef.current;
+      if (previous) {
+        intentionalClose = true;
+        closeSocket(previous);
+        if (wsRef.current === previous) wsRef.current = null;
+      }
+      intentionalClose = false;
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
+      lastMessageAt = Date.now();
 
       ws.onopen = () => {
         reconnectCount = 0;
+        touchActivity();
         setIsConnected(true);
         setIsRefreshing(true);
         ws.send(JSON.stringify(LIST_PAYLOAD));
-
-        clearPingInterval();
-        pingIntervalId = setInterval(() => {
-          if (cancelled || ws.readyState !== WebSocket.OPEN) return;
-          sendPingStartWatchdog(ws);
-        }, PING_INTERVAL_MS);
+        startPingInterval(ws);
+        startIdleWatchdog(ws);
       };
 
       ws.onmessage = (event) => {
+        touchActivity();
         try {
-          console.log("[StaffCallWS] raw message:", event.data);
           const msg = JSON.parse(event.data as string) as {
             type?: string;
             data?: unknown;
@@ -192,7 +300,6 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
             staff_call_id?: unknown;
             status?: unknown;
           };
-          console.log("[StaffCallWS] parsed:", msg);
 
           if (String(msg.type ?? "").toUpperCase() === "PONG") {
             clearPongDeadline();
@@ -213,18 +320,12 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
           }
 
           if (msg.type === "STAFF_CALL_STATUS") {
-            const status = String((msg as any)?.status ?? "")
+            const status = String(msg.status ?? "")
               .trim()
               .toUpperCase();
 
-            console.log("[StaffCallWS] status event:", {
-              staffCallId: Number((msg as any)?.staff_call_id),
-              status,
-            });
-
             if (status === "DELETED") {
-              setIsRefreshing(true);
-              sendList();
+              scheduleListRefresh();
             }
             return;
           }
@@ -235,11 +336,11 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
       };
 
       ws.onerror = () => {
-        onErrorRef.current?.("직원 호출 연결 오류");
         setIsRefreshing(false);
       };
 
       ws.onclose = () => {
+        clearIdleCheck();
         clearPingInterval();
         clearPongDeadline();
         setIsConnected(false);
@@ -247,9 +348,8 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
         const wasActive = wsRef.current === ws;
         if (wasActive) wsRef.current = null;
 
-        if (!cancelled && wasActive) {
-          scheduleReconnect();
-        }
+        if (cancelled || intentionalClose || !wasActive) return;
+        scheduleReconnect();
       };
     };
 
@@ -257,13 +357,17 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
 
     return () => {
       cancelled = true;
+      intentionalClose = true;
+      clearIdleCheck();
       clearPingInterval();
       clearPongDeadline();
       clearReconnect();
-      wsRef.current?.close();
-      if (wsRef.current) wsRef.current = null;
+      clearListDebounce();
+      closeSocket(wsRef.current);
+      wsRef.current = null;
+      setIsConnected(false);
     };
-  }, [options.enabled, sendList]);
+  }, [options.enabled]);
 
   return { isConnected, isRefreshing, requestList };
 }
