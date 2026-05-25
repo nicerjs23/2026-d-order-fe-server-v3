@@ -87,14 +87,33 @@ export const InformationSectionContent = styled.div`
 
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
+
+  width: 100%;
+  padding: 0 1.5rem;
+  box-sizing: border-box;
+`;
+
+/** 테이블 번호 — 항상 한 줄 유지 (절대 깨지지 않게) */
+export const InformationSectionPrimary = styled.span`
+  white-space: nowrap;
+  flex-shrink: 0;
+`;
+
+/** 메뉴명 + 개수 — 길어지면 단어 단위로 줄바꿈 */
+export const InformationSectionSecondary = styled.span`
+  min-width: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 `;
 
 export const InformationSectionDiveider = styled.div`
   width: 0.125rem;
   height: 1rem;
+  flex-shrink: 0;
   background-color: ${({ theme }) => theme.colors.Focused};
   display: flex;
 

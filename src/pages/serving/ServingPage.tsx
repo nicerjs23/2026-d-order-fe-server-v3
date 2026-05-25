@@ -28,6 +28,13 @@ import {
   getServingFilterOptions,
 } from "./apis/servingApi";
 
+/** "T2" 같은 표기를 "테이블 2번"으로 변환. 숫자가 없으면 폴백 처리 */
+const formatTableLabel = (tableNumber?: string | null): string => {
+  if (!tableNumber) return "테이블 정보 없음";
+  const match = String(tableNumber).match(/\d+/);
+  return match ? `테이블 ${match[0]}번` : String(tableNumber);
+};
+
 const ServingPage = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"default" | "error">("default");
@@ -636,7 +643,7 @@ const ServingPage = () => {
         <S.AcceptModalLayer>
           <ServingAcceptModal
             callType={acceptModalItem.callType}
-            tableNumberText={acceptModalItem.tableNumber}
+            tableNumberText={formatTableLabel(acceptModalItem.tableNumber)}
             extraContentText={(() => {
               const t = String(acceptModalItem.callType ?? "")
                 .trim()
@@ -664,7 +671,12 @@ const ServingPage = () => {
         <S.AcceptModalLayer>
           <ServingAcceptModal
             variant="serviceClick"
-            tableNumberText={serveModalItem.tableNumber}
+            tableNumberText={
+              serveModalItem.rawTableNumber != null
+                ? `테이블 ${serveModalItem.rawTableNumber}번`
+                : "테이블 정보 없음"
+            }
+            extraContentText={`${serveModalItem.menuName} ${serveModalItem.quantity}개`}
             onClickComplete={() => void handleServeComplete()}
             onCancelAccept={() => void handleServeCancel()}
           />
