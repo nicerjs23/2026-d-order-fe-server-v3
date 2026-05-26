@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { loginApi, LoginRequest, LoginResponse } from "@apis/authApi";
 import { useUser } from "@stores/UserContext";
+import { setBoothForGA, trackEvent } from "@hooks/useGoogleAnalytics";
 
 interface UseLoginResult {
   login: (body: LoginRequest) => Promise<void>;
@@ -24,6 +25,9 @@ export function useLogin(): UseLoginResult {
     try {
       const res = await loginApi(body);
       setUser({ username: res.data.username, booth_id: res.data.booth_id, booth_name: res.data.booth_name });
+      // 로그인 이벤트도 부스에 귀속되도록 user property를 먼저 설정한 뒤 전송
+      setBoothForGA(res.data.booth_id, res.data.booth_name);
+      trackEvent("login");
       setData(res);
     } catch (err: any) {
       const errMsg =
