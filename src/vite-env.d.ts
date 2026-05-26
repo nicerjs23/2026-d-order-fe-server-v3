@@ -3,6 +3,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_BASE_URL: string;
+  readonly VITE_GA4_MEASUREMENT_ID: string;
 }
 
 interface ImportMeta {
