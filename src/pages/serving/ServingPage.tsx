@@ -15,6 +15,7 @@ import {
 import { useUser } from "@stores/UserContext";
 import ServingAcceptModal from "@components/servingacceptmoal/ServingAcceptModal";
 import { useStaffCallListSocket } from "@hooks/useStaffCallListSocket";
+import { trackEvent } from "@hooks/useGoogleAnalytics";
 
 import StaffServe, {
   type StaffServeUIItem,
@@ -292,6 +293,7 @@ const ServingPage = () => {
 
       setToastMessage(res.message || "호출을 수락했습니다.");
       setToastType("default");
+      trackEvent("staff_call_accept", { call_type: payload.callType });
       return true;
     } catch (err: any) {
       const msg =
@@ -428,6 +430,10 @@ const ServingPage = () => {
         const resMsg = await servingCatchApi(item.taskId);
         setToastMessage(resMsg || "서빙을 시작합니다.");
         setToastType("default");
+        trackEvent("serving_start", {
+          menu_name: item.menuName,
+          quantity: item.quantity,
+        });
 
         setServeModalItem({
           ...item,
@@ -473,6 +479,10 @@ const ServingPage = () => {
       const resMsg = await servingCompleteApi(serveModalItem.taskId);
       setToastMessage(resMsg || "서빙이 완료되었습니다.");
       setToastType("default");
+      trackEvent("serving_complete", {
+        menu_name: serveModalItem.menuName,
+        quantity: serveModalItem.quantity,
+      });
       setServeModalItem(null);
     } catch (err: any) {
       setToastMessage(
@@ -515,6 +525,7 @@ const ServingPage = () => {
       setAcceptModalItem(null);
       setToastMessage("직원호출이 완료되었습니다.");
       setToastType("default");
+      trackEvent("staff_call_complete", { call_type: acceptModalItem.callType });
 
       if (acceptModalAutoCloseTimeoutRef.current) {
         clearTimeout(acceptModalAutoCloseTimeoutRef.current);
@@ -542,6 +553,7 @@ const ServingPage = () => {
       setAcceptModalItem(null);
       setToastMessage("결제가 확인되어 주문이 완료되었습니다.");
       setToastType("default");
+      trackEvent("payment_confirm", { call_type: acceptModalItem.callType });
 
       if (acceptModalAutoCloseTimeoutRef.current) {
         clearTimeout(acceptModalAutoCloseTimeoutRef.current);
@@ -627,6 +639,7 @@ const ServingPage = () => {
               result.payload?.message || "테이블이 초기화되었습니다."
             );
             setToastType("default");
+            trackEvent("table_reset", { table_number: Number(tableNumber) });
             return true;
           }}
         />
