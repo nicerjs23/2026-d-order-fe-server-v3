@@ -166,7 +166,7 @@ const StaffServe = ({
 
         if (Array.isArray(servingRes)) applyServingCalls(servingRes);
       } catch (error) {
-        console.error("서빙 초기 데이터 조회 실패:", error);
+        // console.error("서빙 초기 데이터 조회 실패:", error);
       }
     };
 
@@ -187,7 +187,7 @@ const StaffServe = ({
         if (cancelled || !Array.isArray(servingRes)) return;
         applyServingCalls(servingRes);
       } catch (error) {
-        console.error("서빙 목록 재동기화 실패:", error);
+        // console.error("서빙 목록 재동기화 실패:", error);
       }
     })();
 

@@ -68,7 +68,7 @@ const ServingPage = () => {
         const res = await getServingFilterOptions();
         setValidTables(res.data.tables ?? []);
       } catch (error) {
-        console.error("테이블 필터 옵션 조회 실패:", error);
+        // console.error("테이블 필터 옵션 조회 실패:", error);
       }
     };
 

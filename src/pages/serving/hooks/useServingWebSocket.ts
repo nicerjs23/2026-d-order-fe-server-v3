@@ -109,7 +109,7 @@ export const useServingWebSocket = ({
     try {
       url = getServingWebSocketUrl();
     } catch (e) {
-      console.error("[ServingWS] URL creation error:", e);
+      // console.error("[ServingWS] URL creation error:", e);
       return;
     }
 
@@ -122,7 +122,7 @@ export const useServingWebSocket = ({
         if (disposed || wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
 
         if (Date.now() - lastPongAtRef.current > PONG_TIMEOUT_MS) {
-          console.warn("[ServingWS] pong timeout. reconnecting...");
+          // console.warn("[ServingWS] pong timeout. reconnecting...");
           ws.close();
         }
       }, PONG_CHECK_INTERVAL_MS);
@@ -131,14 +131,14 @@ export const useServingWebSocket = ({
     const connect = () => {
       if (disposed) return;
 
-      console.log(`[ServingWS] connecting: ${url}`);
+      // console.log(`[ServingWS] connecting: ${url}`);
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
       lastPongAtRef.current = Date.now();
 
       ws.onopen = () => {
-        console.log("[ServingWS] connected");
+        // console.log("[ServingWS] connected");
         reconnectCount = 0;
         lastPongAtRef.current = Date.now();
         setIsConnected(true);
@@ -147,7 +147,7 @@ export const useServingWebSocket = ({
 
       ws.onmessage = (event) => {
         try {
-          console.log("[ServingWS] raw message:", event.data);
+          // console.log("[ServingWS] raw message:", event.data);
 
           const message = safeParseMessage(event.data);
           if (isPongMessage(message)) {
@@ -156,22 +156,22 @@ export const useServingWebSocket = ({
           }
 
           const payload = message as ServingWsPayload;
-          console.log(`[ServingWS] parsed [${payload.type}]:`, payload.data);
+          // console.log(`[ServingWS] parsed [${payload.type}]:`, payload.data);
 
           if (payload.type && payload.data) {
             onMessageRef.current(payload);
           }
         } catch (error) {
-          console.error("[ServingWS] message parse error:", error);
+          // console.error("[ServingWS] message parse error:", error);
         }
       };
 
-      ws.onclose = (event) => {
-        console.log("[ServingWS] closed", {
-          code: event.code,
-          reason: event.reason || "none",
-          wasClean: event.wasClean,
-        });
+      ws.onclose = () => {
+        // console.log("[ServingWS] closed", {
+        //   code: event.code,
+        //   reason: event.reason || "none",
+        //   wasClean: event.wasClean,
+        // });
 
         clearPongWatchdog();
         setIsConnected(false);
@@ -179,7 +179,7 @@ export const useServingWebSocket = ({
 
         if (disposed) return;
         if (reconnectCount >= MAX_RECONNECT_COUNT) {
-          console.warn("[ServingWS] reconnect stopped. max retry count reached.");
+          // console.warn("[ServingWS] reconnect stopped. max retry count reached.");
           return;
         }
 
@@ -191,8 +191,8 @@ export const useServingWebSocket = ({
         }, RECONNECT_DELAY_MS);
       };
 
-      ws.onerror = (error) => {
-        console.error("[ServingWS] socket error:", error);
+      ws.onerror = () => {
+        // console.error("[ServingWS] socket error:", error);
       };
     };
 
