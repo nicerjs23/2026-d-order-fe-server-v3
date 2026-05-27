@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { refreshTokenApi } from "@apis/authApi";
 
 const LIST_PAYLOAD = { type: "LIST" as const, limit: 20, offset: 0 };
 
@@ -106,8 +107,10 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
     let reconnectCount = 0;
     let intentionalClose = false;
     let reconnectStopped = false;
+    let authRefreshReconnectAttempted = false;
     let idleCheckId: ReturnType<typeof setInterval> | null = null;
     let reconnectId: ReturnType<typeof setTimeout> | null = null;
+    let inflightRefresh: Promise<void> | null = null;
     let lastMessageAt = Date.now();
 
     const clearIdleCheck = () => {
@@ -126,7 +129,19 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
 
     const touchActivity = () => {
       lastMessageAt = Date.now();
-      reconnectCount = 0;
+      authRefreshReconnectAttempted = false;
+    };
+
+    const ensureFreshTokenBeforeReconnect = () => {
+      if (!inflightRefresh) {
+        inflightRefresh = refreshTokenApi()
+          .then(() => undefined)
+          .finally(() => {
+            inflightRefresh = null;
+          });
+      }
+
+      return inflightRefresh;
     };
 
     const detachSocketHandlers = (ws: WebSocket) => {
@@ -165,9 +180,23 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
 
       reconnectCount += 1;
       const delay = getReconnectDelayMs(reconnectCount);
-      reconnectId = setTimeout(() => {
+      reconnectId = setTimeout(async () => {
         reconnectId = null;
-        if (!cancelled) connect();
+        if (cancelled || reconnectStopped) return;
+
+        try {
+          setIsRefreshing(true);
+          await ensureFreshTokenBeforeReconnect();
+        } catch {
+          reconnectStopped = true;
+          setIsRefreshing(false);
+          onErrorRef.current?.(
+            "직원 호출 연결 인증이 만료되었습니다. 다시 로그인해 주세요."
+          );
+          return;
+        }
+
+        if (!cancelled && !reconnectStopped) connect();
       }, delay);
     };
 
@@ -212,6 +241,7 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
       lastMessageAt = Date.now();
 
       ws.onopen = () => {
+        reconnectCount = 0;
         lastMessageAt = Date.now();
         setIsConnected(true);
         setIsRefreshing(true);
@@ -276,15 +306,20 @@ export function useStaffCallListSocket(options: UseStaffCallListSocketOptions) {
         const wasActive = wsRef.current === ws;
         if (wasActive) wsRef.current = null;
 
+        if (cancelled || intentionalClose || !wasActive) return;
+
         if (AUTH_FAILURE_CLOSE_CODES.has(event.code)) {
-          reconnectStopped = true;
-          onErrorRef.current?.(
-            "직원 호출 연결 인증이 만료되었습니다. 다시 로그인해 주세요."
-          );
-          return;
+          if (authRefreshReconnectAttempted) {
+            reconnectStopped = true;
+            onErrorRef.current?.(
+              "직원 호출 연결 인증이 만료되었습니다. 다시 로그인해 주세요."
+            );
+            return;
+          }
+
+          authRefreshReconnectAttempted = true;
         }
 
-        if (cancelled || intentionalClose || !wasActive) return;
         scheduleReconnect();
       };
     };
