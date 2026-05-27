@@ -85,6 +85,7 @@ const StaffServe = ({
   const [menuList, setMenuList] = useState<ServingFilterMenuOption[]>([]);
   const [tableOptions, setTableOptions] = useState<number[]>([]);
   const [staffServeList, setStaffServeList] = useState<StaffServeUIItem[]>([]);
+  const [hasLoadedServingCalls, setHasLoadedServingCalls] = useState(false);
 
   const formatTableNumber = (tableNumber: number | null | undefined) => {
     if (typeof tableNumber === "number" && Number.isFinite(tableNumber)) {
@@ -139,6 +140,7 @@ const StaffServe = ({
           .map(mapToUIModel)
       );
       setStaffServeList(mapped);
+      setHasLoadedServingCalls(true);
       onRestoreActiveServe?.(
         mapped.find((item) => item.isProcessingByMe && item.canComplete) ?? null
       );
@@ -230,8 +232,9 @@ const StaffServe = ({
   }, [staffServeList]);
 
   useEffect(() => {
+    if (!hasLoadedServingCalls) return;
     onUpdateServeCount?.(activeStaffServeCount);
-  }, [activeStaffServeCount, onUpdateServeCount]);
+  }, [activeStaffServeCount, hasLoadedServingCalls, onUpdateServeCount]);
 
   const selectedMenuName = getMenuFilterLabel(selectedMenuNames);
 

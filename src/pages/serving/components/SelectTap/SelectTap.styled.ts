@@ -44,6 +44,23 @@ export const ButtonText = styled.span<{ $active: boolean }>`
     $active ? theme.colors.Orange01 : theme.colors.Focused};
 `;
 
+export const LoadingCount = styled.span`
+  display: inline-block;
+  min-width: 0.5rem;
+  animation: countPulse 1.1s ease-in-out infinite;
+
+  @keyframes countPulse {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+
+    50% {
+      opacity: 1;
+    }
+  }
+`;
+
 export const ButtonIcon = styled.img`
   color: ${({ theme }) => theme.colors.Focused};
   width: 20px;
