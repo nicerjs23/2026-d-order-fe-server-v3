@@ -23,7 +23,7 @@ export const SheetContainer = styled.div`
   max-width: 500px;
   background-color: ${({ theme }) => theme.colors?.White || "#FFFFFF"};
   border-radius: 1.5rem 1.5rem 0 0;
-  padding: 0.5rem 0.75rem 1.5rem;
+  padding: 0.5rem 0.75rem 5rem;
   box-sizing: border-box;
   animation: ${slideUp} 0.3s ease-out;
   display: flex;
