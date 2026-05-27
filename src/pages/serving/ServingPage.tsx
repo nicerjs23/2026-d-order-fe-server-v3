@@ -43,10 +43,10 @@ const ServingPage = () => {
   const { resetTable } = useTableReset();
   const { user } = useUser();
   const [activeTab, setActiveTab] = useState<"StaffCall" | "StaffServe">(
-    "StaffServe"
+    "StaffCall"
   );
-  /** 직원 호출 패널: 첫 탭 진입까지 마운트 지연으로 초기 부하 분산 */
-  const [staffCallPanelMounted, setStaffCallPanelMounted] = useState(false);
+  /** 직원 호출 패널: 한 번 진입한 뒤에는 탭 전환 시에도 마운트 유지 */
+  const [staffCallPanelMounted, setStaffCallPanelMounted] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ const ServingPage = () => {
     return () => clearInterval(id);
   }, []);
 
-  const [serveCount, setServeCount] = useState(0);
+  const [serveCount, setServeCount] = useState<number | null>(null);
   const [validTables, setValidTables] = useState<number[]>([]);
 
   useEffect(() => {
@@ -205,7 +205,7 @@ const ServingPage = () => {
   };
 
   const [StaffCallList, setStaffCallList] = useState<StaffCallListItem[]>([]);
-  const [staffCallTotal, setStaffCallTotal] = useState<number>(0);
+  const [staffCallTotal, setStaffCallTotal] = useState<number | null>(null);
 
   const [acceptModalItem, setAcceptModalItem] =
     useState<StaffCallListItem | null>(null);
@@ -250,9 +250,7 @@ const ServingPage = () => {
       setStaffCallList(
         items.map((raw) => mapStaffCallItem(raw as StaffCallItem))
       );
-      if (typeof total === "number") {
-        setStaffCallTotal(total);
-      }
+      setStaffCallTotal(typeof total === "number" ? total : items.length);
     },
     onError: (message) => {
       setToastMessage(message);
@@ -402,7 +400,9 @@ const ServingPage = () => {
       await serverOrderCancelApi({ staffCallId: staffCallIdCandidate });
 
       setStaffCallList((prev) => prev.filter((v) => v.id !== item.id));
-      setStaffCallTotal((prev) => Math.max(prev - 1, 0));
+      setStaffCallTotal((prev) =>
+        prev === null ? prev : Math.max(prev - 1, 0)
+      );
 
       setAcceptModalItem(null);
       setToastMessage("주문이 취소되었습니다.");
