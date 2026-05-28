@@ -50,6 +50,20 @@ const isStaffCallAlreadyHandled = (err: any): boolean => {
   return status === 400 && msg.includes("호출을 찾을 수 없");
 };
 
+/**
+ * 서빙 모달에서 완료/취소를 시도했으나, 이미 다른 직원이 먼저 처리(또는 삭제)해
+ * 더 이상 내가 처리할 수 없는 서빙 요청인지 판별한다(이 경우 모달을 닫아야 함).
+ * - 409: 상태 충돌(서빙 중 아님, 다른 직원이 수락 등)
+ * - 400 + "존재하지 않는 서빙 요청입니다.": 처리되며 task가 사라진 경합 케이스
+ *   (헤더 누락 등 다른 400은 {message} 본문이 아니므로 매칭되지 않음)
+ */
+const isServingTaskAlreadyHandled = (err: any): boolean => {
+  const status = err?.response?.status;
+  if (status === 409) return true;
+  const msg = String(err?.response?.data?.message ?? "");
+  return status === 400 && msg.includes("존재하지 않는 서빙 요청");
+};
+
 const ServingPage = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"default" | "error">("default");
@@ -514,6 +528,11 @@ const ServingPage = () => {
           "서빙 완료 처리 중 오류가 발생했습니다."
       );
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 서빙 요청(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isServingTaskAlreadyHandled(err)) {
+        setServeModalItem(null);
+      }
     }
   };
 
@@ -533,6 +552,11 @@ const ServingPage = () => {
           "서빙 취소 처리 중 오류가 발생했습니다."
       );
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 서빙 요청(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isServingTaskAlreadyHandled(err)) {
+        setServeModalItem(null);
+      }
     }
   };
 
