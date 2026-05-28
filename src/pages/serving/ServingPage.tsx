@@ -36,6 +36,20 @@ const formatTableLabel = (tableNumber?: string | null): string => {
   return match ? `테이블 ${match[0]}번` : String(tableNumber);
 };
 
+/**
+ * 모달 안에서 완료/취소를 시도했으나, 이미 다른 직원이 먼저 처리해
+ * 더 이상 내가 처리할 수 없는 호출인지 판별한다(이 경우 모달을 닫아야 함).
+ * - 409: 상태 충돌(이미 완료/수락됨, 다른 사용자가 수락 등)
+ * - 400 + "해당 호출을 찾을 수 없습니다.": 처리되며 행이 사라진 경합 케이스
+ *   (검증 오류인 "...필수입니다.", "부스 정보가 일치하지 않습니다." 등은 닫지 않음)
+ */
+const isStaffCallAlreadyHandled = (err: any): boolean => {
+  const status = err?.response?.status;
+  if (status === 409) return true;
+  const msg = String(err?.response?.data?.message ?? "");
+  return status === 400 && msg.includes("호출을 찾을 수 없");
+};
+
 const ServingPage = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"default" | "error">("default");
@@ -375,6 +389,11 @@ const ServingPage = () => {
         "호출 수락 취소 중 오류가 발생했습니다.";
       setToastMessage(msg);
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 호출(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isStaffCallAlreadyHandled(err)) {
+        setAcceptModalItem(null);
+      }
     }
   };
 
@@ -419,6 +438,11 @@ const ServingPage = () => {
         "주문 취소 중 오류가 발생했습니다.";
       setToastMessage(msg);
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 호출(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isStaffCallAlreadyHandled(err)) {
+        setAcceptModalItem(null);
+      }
     }
   };
 
@@ -537,6 +561,11 @@ const ServingPage = () => {
         "직원호출 완료 처리 중 오류가 발생했습니다.";
       setToastMessage(msg);
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 호출(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isStaffCallAlreadyHandled(err)) {
+        setAcceptModalItem(null);
+      }
     }
   };
 
@@ -565,6 +594,11 @@ const ServingPage = () => {
         "결제 확인 처리 중 오류가 발생했습니다.";
       setToastMessage(msg);
       setToastType("error");
+
+      // 이미 다른 직원이 처리해 사라진 호출(409 충돌 / 400 not-found): 모달을 닫아 목록으로 복귀
+      if (isStaffCallAlreadyHandled(err)) {
+        setAcceptModalItem(null);
+      }
     }
   };
 
